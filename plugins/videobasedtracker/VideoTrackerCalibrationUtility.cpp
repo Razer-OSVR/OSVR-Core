@@ -156,6 +156,14 @@ class TrackerCalibrationApp {
         // attempts to calibrate the back panel, since it's not rigidly attached
         // to the front panel.
         static const int MAX_BEACONS_TO_SHOW = 34;
+        // 6 LEDs are deactivated on HDK2.
+        // Displayed numbers are offseted by one (LED 12 is index 11, etc...)
+        const bool is_hdk2_deactivated_beacon[34] = {
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 1, 1, 1, 0, 0, 0, 0, 0, 0, // 12, 13, 14
+            0, 0, 0, 0, 1, 0, 1, 1, 0, 0, // 25, 27, 28
+            0, 0, 0, 0,
+        };
 
         while (!m_quit) {
             bool gotDebugData = false;
@@ -211,8 +219,10 @@ class TrackerCalibrationApp {
                 auto numGreen = std::size_t{0};
                 auto numYellow = std::size_t{0};
                 auto numUnimproved = std::size_t{0};
+                bool got_hdk1_beacons = false; // got 1 LED deactivated on HDK2
 
                 {
+                    cv::Scalar color[ 34 ] {}; // MAX_BEACONS_TO_SHOW
                     /// Reproject (almost) all beacons
                     std::vector<cv::Point2f> reprojections;
                     vbtracker().getFirstEstimator().ProjectBeaconsToImage(
@@ -226,30 +236,48 @@ class TrackerCalibrationApp {
                             vbtracker()
                                 .getFirstEstimator()
                                 .getBeaconAutocalibVariance(i);
-                        cv::Scalar color{0, 0, 255};
                         if ((autocalibVariance.array() <
                              Eigen::Array3d::Constant(m_secondNotch))
                                 .all()) {
                             /// Green - good!
-                            color = cv::Scalar{0, 255, 0};
+                            color[i] = {0, 255, 0};
                             numGreen++;
+                            if (is_hdk2_deactivated_beacon[i]) {
+                                got_hdk1_beacons = true;
+                            }
                         } else if ((autocalibVariance.array() <
                                     Eigen::Array3d::Constant(m_firstNotch))
                                        .all()) {
                             /// Yellow - better than where you started
-                            color = cv::Scalar{0, 255, 255};
+                            color[i] = {0, 255, 255};
                             numYellow++;
+                            if (is_hdk2_deactivated_beacon[i]) {
+                                got_hdk1_beacons = true;
+                            }
                         } else {
+                            color[i] = { 0, 0, 255 };
                             numUnimproved++;
                         }
-
+                    }
+                    // display colored numbers identifying each LED
+                    for (std::size_t i = 0; i < beaconsToDisplay; ++i) {
+                        if (!got_hdk1_beacons) { // didn't detect any HDK1 LED
+                            // Assume HDK2 and hide those 6 missing LEDs
+                            if (is_hdk2_deactivated_beacon[i]) {
+                                continue;
+                            }
+                        }
                         cv::putText(m_display, std::to_string(i + 1),
                                     reprojections[i] + cv::Point2f(1, 1),
-                                    cv::FONT_HERSHEY_SIMPLEX, 0.45, color);
+                                    cv::FONT_HERSHEY_SIMPLEX, 0.45, color[i]);
                     }
                 }
 
                 {
+                    if (!got_hdk1_beacons) { // didn't detect any HDK1 LED
+                        // Assume HDK2 and ignore those 6 missing LEDs
+                        numUnimproved -= 6;
+                    }
                     /// Draw progress bar along bottom of window.
                     static const auto PROGRESS_HEIGHT = 5;
                     drawTwoStepProgressBar(
