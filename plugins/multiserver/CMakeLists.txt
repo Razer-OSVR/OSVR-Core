@@ -31,6 +31,10 @@ osvr_add_plugin(NAME com_osvr_Multiserver
     GetSerialPortState.h
     VRPNMultiserver.cpp
     VRPNMultiserver.h
+    imu_driver.cpp
+    imu_driver.h
+    usb.cpp
+    usb.h
     ${JSON_HEADERS})
 
 target_link_libraries(com_osvr_Multiserver osvrVRPNServer osvrConnection osvrPluginHost JsonCpp::JsonCpp vendored-vrpn vendored-hidapi)

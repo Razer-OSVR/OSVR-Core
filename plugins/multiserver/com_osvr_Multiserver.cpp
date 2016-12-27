@@ -29,6 +29,8 @@
 #endif
 
 // Internal Includes
+#include "imu_driver.h"
+#include "usb.h"
 #include "VRPNMultiserver.h"
 #include "DevicesWithParameters.h"
 #include <osvr/PluginKit/PluginKit.h>
@@ -79,7 +81,19 @@ class VRPNHardwareDetect : boost::noncopyable {
 #endif
         do {
             gotDevice = false;
-            struct hid_device_info *enumData = hid_enumerate(0, 0);
+
+            // enumerating all devices can take a lot of time, completly
+            // stalling the server up to more than 10 seconds.
+            // Enumerate only the devices we support to mitigate this.
+            unsigned short const id[][2] = {
+                { 0x1532U, 0x0b00U }, // OSVR HMD
+                { 0x03EBU, 0x2421U }, // old OSVR
+                { 0x1532U, 0x0300U }, // hydra
+                { 0x16D0U, 0x0515U }  // zsight
+            };  // vendor,  device
+            int const nid = sizeof(id) / sizeof(*id);
+            struct hid_device_info *enumData = rz_get_devices_info( id, nid );
+
             for (struct hid_device_info *dev = enumData; dev != nullptr;
                  dev = dev->next) {
 
@@ -197,13 +211,22 @@ class VRPNHardwareDetect : boost::noncopyable {
                     (dev->vendor_id == 0x03EB && dev->product_id == 0x2421)) {
                     gotDevice = true;
                     m_handlePath(dev->path);
-                    osvr::vrpnserver::VRPNDeviceRegistration reg(ctx);
+                    // handle device names as the original multiserver would
                     auto name = m_data.getName("OSVRHackerDevKit");
-                    auto decName = reg.useDecoratedName(name);
-                    reg.constructAndRegisterDevice<
-                        vrpn_Tracker_OSVRHackerDevKit>(name);
-                    reg.setDeviceDescriptor(osvr::util::makeString(
-                        com_osvr_Multiserver_OSVRHackerDevKit_json));
+                    std::string const decName = "com_osvr_Multiserver/" + name;
+                    std::string params = R"(
+                    {   "name"              : "OSVRHackerDevKit0",
+                        "read_timeout"      : -1,
+                        "reconnect_timeout" : 2000,
+                        "detect_now"        : true,
+                        "register_hwdetect" : false
+                    })";
+                    params.replace( params.find( "OSVRHackerDevKit0" ),
+                                    std::strlen( "OSVRHackerDevKit0" ),
+                                    name ); // params[64] = name.back();
+                    // instantiate a driver to get IMU data from USB
+                    rz_OSVRHackerDevKit_driver_callback( ctx, params.c_str() );
+                    // instantiate a dead reckoning
                     {
                         osvr::vrpnserver::VRPNDeviceRegistration reg2(ctx);
                         reg2.registerDevice(
